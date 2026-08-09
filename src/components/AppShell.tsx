@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/Logo';
+import { useSession, signOut } from 'next-auth/react';
 import {
   LayoutDashboard,
   Search,
@@ -32,6 +33,25 @@ const NAV = [
 export function AppShell({ children, current }: { children: ReactNode; current: string }) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const { data: session } = useSession();
+
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const name = session?.user?.name || '';
+  const email = session?.user?.email || '';
+  const image = session?.user?.image || '';
+
+  const initials = name
+    ? name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .substring(0, 2)
+        .toUpperCase()
+    : email
+    ? email.substring(0, 2).toUpperCase()
+    : 'U';
 
   // ⌘K to open search
   useEffect(() => {
@@ -44,6 +64,28 @@ export function AppShell({ children, current }: { children: ReactNode; current: 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [router]);
+
+  // Close logout dialog on Escape key
+  useEffect(() => {
+    if (!showLogoutDialog) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSigningOut) {
+        setShowLogoutDialog(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showLogoutDialog, isSigningOut]);
+
+  const handleConfirmSignOut = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    try {
+      await signOut({ callbackUrl: '/login' });
+    } catch {
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-ink-950 text-slate-200">
@@ -107,18 +149,23 @@ export function AppShell({ children, current }: { children: ReactNode; current: 
         {/* User */}
         <div className="border-t border-white/[0.06] p-3">
           <div className={`flex items-center gap-3 rounded-xl px-2 py-2 ${collapsed ? 'justify-center' : ''}`}>
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-azure-400 to-indigo-500 text-xs font-semibold text-white">
-              AC
-            </div>
+            {image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={image} alt={name || "User Avatar"} className="h-8 w-8 rounded-full shrink-0 object-cover" />
+            ) : (
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-azure-400 to-indigo-500 text-xs font-semibold text-white">
+                {initials}
+              </div>
+            )}
             {!collapsed && (
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-200">Alex Carter</p>
-                <p className="truncate text-xs text-slate-500">alex@synapseos.app</p>
+                <p className="truncate text-sm font-medium text-slate-200">{name || "User"}</p>
+                <p className="truncate text-xs text-slate-500">{email}</p>
               </div>
             )}
             {!collapsed && (
               <button
-                onClick={() => router.push('/')}
+                onClick={() => setShowLogoutDialog(true)}
                 className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-white/5 hover:text-rose-400"
                 aria-label="Sign out"
               >
@@ -164,6 +211,84 @@ export function AppShell({ children, current }: { children: ReactNode; current: 
           <div className="animate-fade-in">{children}</div>
         </main>
       </div>
+
+      {/* Sign Out Confirmation Dialog */}
+      {showLogoutDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-fade-in"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isSigningOut) {
+              setShowLogoutDialog(false);
+            }
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="logout-dialog-title"
+          aria-describedby="logout-dialog-description"
+        >
+          <div className="relative w-full max-w-sm rounded-2xl border border-white/10 bg-ink-900 p-6 shadow-card animate-fade-up text-center">
+            {/* Sign-out Icon */}
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
+              <LogOut className="h-5 w-5" />
+            </div>
+
+            {/* Title & Description */}
+            <h2 id="logout-dialog-title" className="text-base font-semibold text-slate-100">
+              Sign out of SynapseOS?
+            </h2>
+            <p id="logout-dialog-description" className="mt-1.5 text-xs text-slate-400 leading-relaxed">
+              Are you sure you want to sign out of your account?
+            </p>
+
+            {/* User Identity Card */}
+            <div className="mt-5 flex items-center gap-3.5 rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 text-left">
+              {image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={image}
+                  alt={name || "User Avatar"}
+                  className="h-9 w-9 rounded-full shrink-0 object-cover ring-1 ring-white/10"
+                />
+              ) : (
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-azure-400 to-indigo-500 text-xs font-semibold text-white shadow-sm ring-1 ring-white/10">
+                  {initials}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-slate-200">
+                  {name || "SynapseOS User"}
+                </p>
+                {email && (
+                  <p className="truncate text-[11px] text-slate-400">
+                    {email}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLogoutDialog(false)}
+                disabled={isSigningOut}
+                className="flex-1 inline-flex h-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-xs font-medium text-slate-300 transition-all duration-200 hover:border-white/20 hover:bg-white/[0.06] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                autoFocus
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSignOut}
+                disabled={isSigningOut}
+                className="flex-1 inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 text-xs font-medium text-white transition-all duration-200 hover:bg-rose-500 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              >
+                {isSigningOut ? 'Signing out...' : 'Sign out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

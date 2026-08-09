@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/Logo';
 import { NeuralNetwork } from '@/components/NeuralNetwork';
 import { ArrowRight, ArrowLeft, Check, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { signIn } from 'next-auth/react';
 
 type Mode = 'login' | 'signup';
 
@@ -15,16 +16,80 @@ export function AuthPage({ mode }: { mode: Mode }) {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const strength = passwordStrength(password);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => router.push('/dashboard'), 700);
+    setError('');
+
+    try {
+      if (isSignup) {
+        if (name.trim().length < 2) {
+          setError('Name must be at least 2 characters long.');
+          setLoading(false);
+          return;
+        }
+        if (password.length < 8) {
+          setError('Password must be at least 8 characters long.');
+          setLoading(false);
+          return;
+        }
+        if (password !== confirmPassword) {
+          setError('Passwords do not match.');
+          setLoading(false);
+          return;
+        }
+
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password, confirmPassword }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.message || 'Unable to create account. Please try again.');
+          setLoading(false);
+          return;
+        }
+
+        // Automatic sign in after signup
+        const signInRes = await signIn('credentials', {
+          email,
+          password,
+          redirect: false,
+        });
+
+        if (signInRes?.error) {
+          router.push('/login?message=Account created successfully. Please sign in.');
+        } else {
+          router.push('/dashboard');
+        }
+      } else {
+        const signInRes = await signIn('credentials', {
+          email,
+          password,
+          redirect: false,
+        });
+
+        if (signInRes?.error) {
+          setError('Invalid email or password.');
+          setLoading(false);
+        } else {
+          router.push('/dashboard');
+        }
+      }
+    } catch {
+      setError('An unexpected error occurred. Please try again.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -57,7 +122,11 @@ export function AuthPage({ mode }: { mode: Mode }) {
           </p>
 
           {/* Google */}
-          <button className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-medium text-slate-200 transition-all hover:border-white/20 hover:bg-white/[0.06]">
+          <button
+            onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+            type="button"
+            className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-medium text-slate-200 transition-all hover:border-white/20 hover:bg-white/[0.06]"
+          >
             <GoogleIcon />
             Continue with Google
           </button>
@@ -67,6 +136,12 @@ export function AuthPage({ mode }: { mode: Mode }) {
             <span className="text-xs text-slate-600">or</span>
             <div className="h-px flex-1 bg-white/[0.06]" />
           </div>
+
+          {error && (
+            <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-center text-xs text-red-400">
+              {error}
+            </div>
+          )}
 
           <form onSubmit={submit} className="space-y-4">
             {isSignup && (
@@ -110,6 +185,19 @@ export function AuthPage({ mode }: { mode: Mode }) {
                 {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </Field>
+
+            {isSignup && (
+              <Field icon={Lock} label="Confirm Password">
+                <input
+                  type={showPwd ? 'text' : 'password'}
+                  className="input pl-11 pr-11"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+              </Field>
+            )}
 
             {isSignup && password.length > 0 && (
               <div className="space-y-1.5">

@@ -17,9 +17,12 @@ import {
   Plus,
   } from 'lucide-react';
 import { todaysPriorities, recentActivity, aiSuggestion, integrations } from '@/lib/mock';
+import { auth } from '@/auth';
 
-export default function Page() {
+export default async function Page() {
   const connected = integrations.filter((i) => i.connected);
+  const session = await auth();
+  const firstName = session?.user?.name ? session.user.name.split(' ')[0] : 'User';
 
   return (
     <AppShell current="/dashboard">
@@ -30,7 +33,7 @@ export default function Page() {
         <div className="absolute inset-0 bg-gradient-to-r from-ink-950/70 via-ink-950/30 to-transparent" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Good morning, Alex</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Good morning, {firstName}</p>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white">Today&apos;s Brief</h1>
             <p className="mt-2 text-sm text-slate-400">Thursday, July 31 · 5 priorities · 1 AI suggestion</p>
           </div>
