@@ -16,6 +16,7 @@ model User {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   connectedAccounts ConnectedAccount[]
+  emailMessages     EmailMessage[]
 }
 
 model ConnectedAccount {
@@ -23,6 +24,7 @@ model ConnectedAccount {
   userId            String
   provider          String
   providerAccountId String
+  email             String?
   accessToken       String?
   refreshToken      String?
   expiresAt         DateTime?
@@ -30,8 +32,42 @@ model ConnectedAccount {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailMessages EmailMessage[]
 
   @@unique([provider, providerAccountId])
   @@index([userId])
+}
+
+model EmailMessage {
+  id                 String   @id @default(uuid())
+  userId             String
+  connectedAccountId String
+
+  gmailMessageId     String
+  threadId           String?
+
+  sender             String?
+  recipients         String?
+  subject            String?
+  snippet            String?
+
+  bodyText           String?
+
+  receivedAt         DateTime?
+
+  isRead             Boolean  @default(false)
+
+  labels             String?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gmailMessageId])
+  @@index([userId])
+  @@index([connectedAccountId])
+  @@index([receivedAt])
 }

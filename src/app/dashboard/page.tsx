@@ -18,10 +18,73 @@ import {
   } from 'lucide-react';
 import { todaysPriorities, recentActivity, aiSuggestion, integrations } from '@/lib/mock';
 import { auth } from '@/auth';
+import { prisma } from '@/lib/prisma';
+
+function formatTimeAgoDashboard(date: Date): string {
+  try {
+    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+    if (seconds < 60) return "Just now";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    if (days === 1) return "Yesterday";
+    if (days < 7) return `${days}d`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return "";
+  }
+}
 
 export default async function Page() {
-  const connected = integrations.filter((i) => i.connected);
   const session = await auth();
+  const userId = session?.user?.id;
+
+  const activeGmailAccounts = userId ? await prisma.connectedAccount.findMany({
+    where: {
+      userId,
+      provider: "google_gmail",
+      accessToken: { not: null },
+      refreshToken: { not: null },
+    },
+    select: { id: true, email: true, providerAccountId: true },
+  }) : [];
+
+  const hasConnectedGmail = activeGmailAccounts.length > 0;
+  const activeAccountIds = activeGmailAccounts.map(a => a.id);
+
+  const realConnectedApps = integrations.map(i => {
+    if (i.id === 'gmail') {
+      return { ...i, connected: hasConnectedGmail };
+    }
+    return i;
+  }).filter(i => i.connected);
+
+  const realEmails = (userId && hasConnectedGmail) ? await prisma.emailMessage.findMany({
+    where: {
+      userId,
+      connectedAccountId: { in: activeAccountIds },
+    },
+    include: {
+      connectedAccount: {
+        select: { email: true, providerAccountId: true },
+      },
+    },
+    orderBy: [
+      { receivedAt: 'desc' },
+      { createdAt: 'desc' },
+    ],
+    take: 5,
+  }) : [];
+
+  const unreadCount = hasConnectedGmail ? await prisma.emailMessage.count({
+    where: {
+      userId,
+      connectedAccountId: { in: activeAccountIds },
+      isRead: false,
+    },
+  }) : 0;
   const firstName = session?.user?.name ? session.user.name.split(' ')[0] : 'User';
 
   return (
@@ -183,33 +246,69 @@ export default async function Page() {
             </div>
           </section>
 
-          {/* Important emails */}
+          {/* Recent emails */}
           <section className="surface p-5">
             <div className="flex items-center justify-between">
-              <SectionHeader title="Important Emails" />
-              <span className="chip-azure">2 unread</span>
+              <SectionHeader title="Recent Emails" />
+              {hasConnectedGmail && unreadCount > 0 && (
+                <span className="chip-azure">{unreadCount} unread</span>
+              )}
             </div>
-            <div className="space-y-2.5">
-              {[
-                { from: 'Prof. Chen', subject: 'DBMS draft feedback', time: '8m', unread: true },
-                { from: 'Northwind Recruiter', subject: 'Interview confirmation', time: 'Yesterday', unread: true },
-                { from: 'Maya Patel', subject: 'Re: API v2 contract', time: '2d', unread: false },
-              ].map((m, i) => (
-                <div key={i} className="group flex items-start gap-3 rounded-xl p-3 transition-colors hover:bg-white/[0.03]">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] shadow-soft">
-                    <ServiceIcon id="gmail" size={16} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className={`text-sm ${m.unread ? 'font-medium text-white' : 'text-slate-300'}`}>{m.from}</p>
-                      <span className="text-xs text-slate-600">{m.time}</span>
+            {!hasConnectedGmail ? (
+              <div className="py-6 text-center">
+                <p className="text-xs text-slate-500">Connect Gmail to see your recent emails.</p>
+                <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300 transition-all hover:bg-white/[0.06] hover:text-white">
+                  Connect Gmail
+                </Link>
+              </div>
+            ) : realEmails.length === 0 ? (
+              <div className="py-6 text-center">
+                <p className="text-xs text-slate-500">No recent emails yet.</p>
+                <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300 transition-all hover:bg-white/[0.06] hover:text-white">
+                  Sync now
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {realEmails.map((m) => {
+                  const unread = !m.isRead;
+                  let displayName = m.sender || "Unknown Sender";
+                  if (displayName.includes("<")) {
+                    const match = displayName.match(/^([^<]+)/);
+                    if (match && match[1].trim()) {
+                      displayName = match[1].trim().replace(/^['"]|['"]$/g, "");
+                    } else {
+                      const emailMatch = displayName.match(/<([^>]+)>/);
+                      if (emailMatch) displayName = emailMatch[1];
+                    }
+                  }
+                  const timeStr = m.receivedAt ? formatTimeAgoDashboard(m.receivedAt) : "";
+                  const sourceEmail = m.connectedAccount?.email || m.connectedAccount?.providerAccountId;
+
+                  return (
+                    <div key={m.id} className="group flex items-start gap-3 rounded-xl p-3 transition-colors hover:bg-white/[0.03]">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] shadow-soft">
+                        <ServiceIcon id="gmail" size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className={`text-sm truncate mr-2 ${unread ? 'font-medium text-white' : 'text-slate-300'}`}>{displayName}</p>
+                          <span className="text-[10px] text-slate-600 shrink-0">{timeStr}</span>
+                        </div>
+                        <p className={`truncate text-xs ${unread ? 'text-slate-300' : 'text-slate-500'}`}>{m.subject || "(No Subject)"}</p>
+                        <p className="truncate text-[11px] text-slate-500 mt-0.5">{m.snippet}</p>
+                        {activeGmailAccounts.length > 1 && sourceEmail && (
+                          <p className="truncate text-[10px] text-slate-600 mt-1 font-medium">
+                            via {sourceEmail}
+                          </p>
+                        )}
+                      </div>
+                      {unread && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-azure-400" />}
                     </div>
-                    <p className="truncate text-xs text-slate-500">{m.subject}</p>
-                  </div>
-                  {m.unread && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-azure-400" />}
-                </div>
-              ))}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           {/* Memory insights */}
@@ -253,7 +352,7 @@ export default async function Page() {
               <Link href='/integrations' className="text-xs text-azure-300 hover:text-azure-200">Manage</Link>
             </div>
             <div className="flex flex-wrap gap-2">
-              {connected.map((i) => (
+              {realConnectedApps.map((i) => (
                 <div key={i.id} className="group flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 transition-colors hover:border-white/12 hover:bg-white/[0.04]" title={i.name}>
                   <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.04]">
                     <ServiceIcon id={i.id} size={16} />
