@@ -39,6 +39,26 @@ model ConnectedAccount {
   @@index([userId])
 }
 
+enum AICategory {
+  WORK
+  COLLEGE
+  PLACEMENT
+  PERSONAL
+  FINANCE
+  SOCIAL
+  PROMOTION
+  NEWSLETTER
+  SECURITY
+  TRANSACTION
+  OTHER
+}
+
+enum AIPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
 model EmailMessage {
   id                 String   @id @default(uuid())
   userId             String
@@ -60,6 +80,14 @@ model EmailMessage {
 
   labels             String?
 
+  // AI Intelligence fields (Milestone 3.2)
+  aiCategory         AICategory?
+  aiPriority         AIPriority?
+  aiActionable       Boolean?
+  aiSummary          String?
+  aiReason           String?
+  aiProcessedAt      DateTime?
+
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -70,4 +98,6 @@ model EmailMessage {
   @@index([userId])
   @@index([connectedAccountId])
   @@index([receivedAt])
+  @@index([userId, aiProcessedAt])
 }
+

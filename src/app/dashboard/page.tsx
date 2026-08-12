@@ -61,7 +61,7 @@ export default async function Page() {
     return i;
   }).filter(i => i.connected);
 
-  const realEmails = (userId && hasConnectedGmail) ? await prisma.emailMessage.findMany({
+  const rawEmails = (userId && hasConnectedGmail) ? await prisma.emailMessage.findMany({
     where: {
       userId,
       connectedAccountId: { in: activeAccountIds },
@@ -75,8 +75,35 @@ export default async function Page() {
       { receivedAt: 'desc' },
       { createdAt: 'desc' },
     ],
-    take: 5,
+    take: 30,
   }) : [];
+
+  const priorityWeights: Record<string, number> = {
+    HIGH: 3,
+    MEDIUM: 2,
+    LOW: 1,
+  };
+
+  const realEmails = [...rawEmails].sort((a, b) => {
+    const aPriority = a.aiPriority ? (priorityWeights[a.aiPriority] || 0) : 0;
+    const bPriority = b.aiPriority ? (priorityWeights[b.aiPriority] || 0) : 0;
+
+    const aActionable = a.aiActionable ? 1 : 0;
+    const bActionable = b.aiActionable ? 1 : 0;
+
+    const aScore = aPriority * 10 + aActionable * 2;
+    const bScore = bPriority * 10 + bActionable * 2;
+
+    if (aScore !== bScore) {
+      return bScore - aScore;
+    }
+
+    const aTime = a.receivedAt ? new Date(a.receivedAt).getTime() : 0;
+    const bTime = b.receivedAt ? new Date(b.receivedAt).getTime() : 0;
+    return bTime - aTime;
+  });
+
+  const highPriorityCount = realEmails.filter(m => m.aiPriority === 'HIGH').length;
 
   const unreadCount = hasConnectedGmail ? await prisma.emailMessage.count({
     where: {
@@ -246,30 +273,52 @@ export default async function Page() {
             </div>
           </section>
 
-          {/* Recent emails */}
+          {/* Needs Attention card */}
           <section className="surface p-5">
-            <div className="flex items-center justify-between">
-              <SectionHeader title="Recent Emails" />
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <SectionHeader title="Needs Attention" />
+                {highPriorityCount > 0 && (
+                  <span className="rounded-full bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 text-[10px] font-semibold text-rose-400">
+                    {highPriorityCount} High
+                  </span>
+                )}
+              </div>
               {hasConnectedGmail && unreadCount > 0 && (
-                <span className="chip-azure">{unreadCount} unread</span>
+                <span className="chip-azure text-[10px] py-0.5 px-2">{unreadCount} unread</span>
               )}
             </div>
+
             {!hasConnectedGmail ? (
               <div className="py-6 text-center">
-                <p className="text-xs text-slate-500">Connect Gmail to see your recent emails.</p>
-                <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300 transition-all hover:bg-white/[0.06] hover:text-white">
+                <p className="text-xs text-slate-400">
+                  Connect Gmail to let SynapseOS identify emails that need your attention.
+                </p>
+                <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs font-medium text-slate-200 transition-all hover:bg-white/[0.06] hover:text-white">
                   Connect Gmail
                 </Link>
               </div>
             ) : realEmails.length === 0 ? (
               <div className="py-6 text-center">
-                <p className="text-xs text-slate-500">No recent emails yet.</p>
-                <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300 transition-all hover:bg-white/[0.06] hover:text-white">
+                <p className="text-xs text-slate-500">No emails synchronized yet.</p>
+                <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs font-medium text-slate-300 transition-all hover:bg-white/[0.06] hover:text-white">
                   Sync now
                 </Link>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="max-h-[360px] overflow-y-auto space-y-3 pr-1">
+                {rawEmails.length > 0 && realEmails.every(m => !m.aiProcessedAt) && (
+                  <div className="rounded-xl border border-violet-400/20 bg-violet-500/10 p-2.5 text-xs text-violet-200 flex items-center justify-between mb-2">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-violet-400 shrink-0" />
+                      Add GEMINI_API_KEY to .env.local and click Sync now to classify emails.
+                    </span>
+                    <Link href="/integrations" className="text-[10px] font-semibold underline text-violet-300 hover:text-white shrink-0 ml-2">
+                      Sync now
+                    </Link>
+                  </div>
+                )}
+
                 {realEmails.map((m) => {
                   const unread = !m.isRead;
                   let displayName = m.sender || "Unknown Sender";
@@ -285,25 +334,109 @@ export default async function Page() {
                   const timeStr = m.receivedAt ? formatTimeAgoDashboard(m.receivedAt) : "";
                   const sourceEmail = m.connectedAccount?.email || m.connectedAccount?.providerAccountId;
 
+                  const priority = m.aiPriority;
+                  const category = m.aiCategory;
+                  const actionable = m.aiActionable;
+                  const summary = m.aiSummary;
+                  const reason = m.aiReason;
+                  const isProcessed = Boolean(m.aiProcessedAt);
+
                   return (
-                    <div key={m.id} className="group flex items-start gap-3 rounded-xl p-3 transition-colors hover:bg-white/[0.03]">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] shadow-soft">
-                        <ServiceIcon id="gmail" size={16} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className={`text-sm truncate mr-2 ${unread ? 'font-medium text-white' : 'text-slate-300'}`}>{displayName}</p>
-                          <span className="text-[10px] text-slate-600 shrink-0">{timeStr}</span>
+                    <div
+                      key={m.id}
+                      className={`group flex flex-col gap-2 rounded-xl p-3.5 transition-all border ${
+                        unread
+                          ? "border-azure-400/25 bg-azure-500/[0.03] hover:bg-azure-500/[0.06]"
+                          : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      {/* Top Row: AI Badges & Metadata */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* Priority Badge */}
+                          {priority === "HIGH" && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-300 shadow-soft">
+                              <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse-soft" />
+                              HIGH PRIORITY
+                            </span>
+                          )}
+                          {priority === "MEDIUM" && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                              MEDIUM
+                            </span>
+                          )}
+                          {priority === "LOW" && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-slate-500/30 bg-slate-500/20 px-2 py-0.5 text-[10px] font-medium text-slate-400">
+                              LOW
+                            </span>
+                          )}
+
+                          {/* Category Pill */}
+                          {category && (
+                            <span className="rounded-md border border-violet-400/35 bg-violet-500/20 px-2 py-0.5 text-[10px] font-bold text-violet-300 uppercase tracking-wider">
+                              {category}
+                            </span>
+                          )}
+
+                          {/* Actionability Badge */}
+                          {actionable && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/40 bg-emerald-400/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                              <Zap className="h-3 w-3 text-emerald-400" /> Action Required
+                            </span>
+                          )}
+
+                          {!isProcessed && (
+                            <span className="rounded-md border border-slate-700/80 bg-slate-800/80 px-2 py-0.5 text-[10px] font-medium text-slate-400 italic">
+                              AI Pending
+                            </span>
+                          )}
                         </div>
-                        <p className={`truncate text-xs ${unread ? 'text-slate-300' : 'text-slate-500'}`}>{m.subject || "(No Subject)"}</p>
-                        <p className="truncate text-[11px] text-slate-500 mt-0.5">{m.snippet}</p>
-                        {activeGmailAccounts.length > 1 && sourceEmail && (
-                          <p className="truncate text-[10px] text-slate-600 mt-1 font-medium">
-                            via {sourceEmail}
-                          </p>
-                        )}
+
+                        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                          <span className="text-[10px] font-medium text-slate-500">{timeStr}</span>
+                          {unread && <span className="h-2 w-2 rounded-full bg-azure-400 shadow-glow-soft" title="Unread" />}
+                        </div>
                       </div>
-                      {unread && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-azure-400" />}
+
+                      {/* Sender & Subject Line */}
+                      <div className="min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-xs truncate ${unread ? 'font-bold text-white' : 'font-semibold text-slate-200'}`}>
+                            {displayName}
+                          </span>
+                          {activeGmailAccounts.length > 1 && sourceEmail && (
+                            <span className="text-[10px] text-slate-500 truncate shrink-0" title={sourceEmail}>
+                              via {sourceEmail}
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-xs mt-0.5 truncate ${unread ? 'font-medium text-slate-200' : 'text-slate-400'}`}>
+                          Subject: {m.subject || "(No Subject)"}
+                        </p>
+                      </div>
+
+                      {/* AI Summary Box */}
+                      {summary ? (
+                        <div className="rounded-lg border border-azure-400/20 bg-ink-900/80 p-2.5 text-xs text-slate-100 leading-relaxed shadow-inner">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-azure-300 mb-1 flex items-center gap-1">
+                            <Sparkles className="h-3 w-3 text-azure-400" /> AI Summary
+                          </p>
+                          {summary}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] p-2 text-xs text-slate-400 flex items-center justify-between">
+                          <span className="truncate">{m.snippet || "(No email snippet)"}</span>
+                          <span className="text-[9px] text-amber-400/90 font-medium shrink-0 ml-2">Unclassified</span>
+                        </div>
+                      )}
+
+                      {/* AI Priority Reason */}
+                      {reason && (
+                        <div className="text-[11px] text-slate-400 flex items-start gap-1.5 bg-white/[0.02] px-2.5 py-1.5 rounded-lg border border-white/[0.04]">
+                          <span className="font-semibold text-violet-300 shrink-0">Why:</span>
+                          <span className="leading-snug text-slate-300">{reason}</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

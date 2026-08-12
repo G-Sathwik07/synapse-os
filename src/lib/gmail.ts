@@ -261,13 +261,26 @@ export async function syncGmailMessages(
     data: { updatedAt: new Date() },
   });
 
+  // Trigger AI Intelligence classification on unprocessed emails for this user.
+  // CRITICAL REQUIREMENT 15: Gemini failures MUST NEVER break Gmail synchronization.
+  let aiResults = { processedCount: 0, failedCount: 0 };
+  try {
+    const { processUnprocessedEmailsForUser } = await import("@/lib/ai/email-intelligence");
+    aiResults = await processUnprocessedEmailsForUser(userId, { limit: Math.max(limit, 100) });
+  } catch (aiErr) {
+    console.error(`AI classification trigger failed for user ${userId} during sync:`, aiErr);
+  }
+
   return {
     success: true,
     count: syncCount,
     newCount,
     updatedCount,
     unchangedCount,
+    aiProcessedCount: aiResults.processedCount,
+    aiFailedCount: aiResults.failedCount,
     connectedAccountId: connectedAccount.id,
     email: connectedAccount.email || connectedAccount.providerAccountId,
   };
 }
+
