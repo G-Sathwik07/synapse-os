@@ -12,6 +12,8 @@ interface GmailAccount {
   email: string;
   lastSyncedAt: string;
   messageCount: number;
+  scope?: string | null;
+  hasModifyAccess?: boolean;
 }
 
 function formatTimeAgo(dateStr: string): string {
@@ -291,9 +293,9 @@ export default function Page() {
                   )}
 
                   {/* Header row */}
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] shadow-soft">
+                  <div className="flex items-start justify-between gap-3 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] shadow-soft shrink-0">
                         <ServiceIcon id="gmail" size={24} />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -303,7 +305,7 @@ export default function Page() {
                         </p>
                       </div>
                     </div>
-                    <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium text-emerald-400 shrink-0">
+                    <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium text-emerald-400 shrink-0 whitespace-nowrap">
                       <span className="dot bg-emerald-400" /> Connected
                     </span>
                   </div>
@@ -315,20 +317,38 @@ export default function Page() {
                       <span className="text-slate-300">{timeAgo}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-slate-500"><Shield className="h-3 w-3" /> Permissions</span>
-                      <span className="text-slate-300">1</span>
+                      <span className="flex items-center gap-1.5 text-slate-500"><Shield className="h-3 w-3" /> Scope Access</span>
+                      <span className="text-slate-300">{acc.hasModifyAccess ? "Read & Modify" : "Read Only"}</span>
                     </div>
                   </div>
 
                   {/* Permissions chips */}
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    <span className="rounded-md bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-slate-400">Read emails</span>
+                    {acc.hasModifyAccess ? (
+                      <span className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                        Read & Modify emails
+                      </span>
+                    ) : (
+                      <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-300 flex items-center gap-1">
+                        Read emails (Upgrade needed for actions)
+                      </span>
+                    )}
                   </div>
 
                   {/* Actions */}
                   <div className="mt-5 flex flex-col gap-2 border-t border-white/[0.06] pt-4">
+                    {acc.hasModifyAccess === false && (
+                      <button
+                        onClick={handleConnectGmail}
+                        disabled={connecting}
+                        className="rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-3 py-1.5 text-xs font-semibold text-amber-200 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 mb-1"
+                      >
+                        <Shield className="h-3.5 w-3.5 text-amber-400" /> Upgrade Gmail Access
+                      </button>
+                    )}
+
                     {feedback && (
-                      <p className={`text-[10px] font-medium ${feedback.includes("Unable") || feedback.includes("expired") ? "text-rose-400" : "text-emerald-400"}`}>
+                      <p className={`text-[10px] font-medium ${feedback.includes("Unable") || feedback.includes("expired") || feedback.includes("permission") ? "text-rose-400" : "text-emerald-400"}`}>
                         {feedback}
                       </p>
                     )}

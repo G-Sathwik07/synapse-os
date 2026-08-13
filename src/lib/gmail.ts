@@ -284,3 +284,211 @@ export async function syncGmailMessages(
   };
 }
 
+/**
+ * Updates message read/unread state in Gmail API and SynapseOS DB.
+ */
+export async function updateMessageReadState(userId: string, messageId: string, isRead: boolean) {
+  const message = await prisma.emailMessage.findFirst({
+    where: { id: messageId, userId },
+    include: { connectedAccount: true },
+  });
+
+  if (!message) {
+    throw new Error("Email message not found or unauthorized.");
+  }
+
+  const clientInfo = await getGmailOAuth2Client(userId, message.connectedAccountId);
+  if (!clientInfo) {
+    throw new Error("Connected Gmail account not found or unauthenticated.");
+  }
+
+  const { oauth2Client, connectedAccount } = clientInfo;
+
+  const scope = connectedAccount.scope || "";
+  if (!scope.includes("gmail.modify")) {
+    throw new Error("Additional Gmail permission required. Please upgrade Gmail access.");
+  }
+
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  try {
+    if (isRead) {
+      await gmail.users.messages.modify({
+        userId: "me",
+        id: message.gmailMessageId,
+        requestBody: { removeLabelIds: ["UNREAD"] },
+      });
+    } else {
+      await gmail.users.messages.modify({
+        userId: "me",
+        id: message.gmailMessageId,
+        requestBody: { addLabelIds: ["UNREAD"] },
+      });
+    }
+  } catch (err: unknown) {
+    console.error(`Gmail API error modifying read status for ${messageId}:`, err);
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("403") || msg.includes("insufficient") || msg.includes("permission") || msg.includes("scope")) {
+      throw new Error("Additional Gmail permission required. Please upgrade Gmail access.");
+    }
+    throw new Error("Failed to update Gmail read status.");
+  }
+
+  const updatedLabelsArr = (message.labels ? message.labels.split(",") : []).filter((l) => l.trim().length > 0);
+  let newLabelsArr: string[];
+  if (isRead) {
+    newLabelsArr = updatedLabelsArr.filter((l) => l !== "UNREAD");
+  } else {
+    newLabelsArr = updatedLabelsArr.includes("UNREAD") ? updatedLabelsArr : [...updatedLabelsArr, "UNREAD"];
+  }
+
+  const updatedMessage = await prisma.emailMessage.update({
+    where: { id: message.id },
+    data: {
+      isRead,
+      labels: newLabelsArr.join(","),
+    },
+    include: {
+      connectedAccount: {
+        select: { id: true, email: true, providerAccountId: true, scope: true },
+      },
+    },
+  });
+
+  return updatedMessage;
+}
+
+/**
+ * Updates message star/unstar state in Gmail API and SynapseOS DB.
+ */
+export async function updateMessageStarState(userId: string, messageId: string, isStarred: boolean) {
+  const message = await prisma.emailMessage.findFirst({
+    where: { id: messageId, userId },
+    include: { connectedAccount: true },
+  });
+
+  if (!message) {
+    throw new Error("Email message not found or unauthorized.");
+  }
+
+  const clientInfo = await getGmailOAuth2Client(userId, message.connectedAccountId);
+  if (!clientInfo) {
+    throw new Error("Connected Gmail account not found or unauthenticated.");
+  }
+
+  const { oauth2Client, connectedAccount } = clientInfo;
+
+  const scope = connectedAccount.scope || "";
+  if (!scope.includes("gmail.modify")) {
+    throw new Error("Additional Gmail permission required. Please upgrade Gmail access.");
+  }
+
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  try {
+    if (isStarred) {
+      await gmail.users.messages.modify({
+        userId: "me",
+        id: message.gmailMessageId,
+        requestBody: { addLabelIds: ["STARRED"] },
+      });
+    } else {
+      await gmail.users.messages.modify({
+        userId: "me",
+        id: message.gmailMessageId,
+        requestBody: { removeLabelIds: ["STARRED"] },
+      });
+    }
+  } catch (err: unknown) {
+    console.error(`Gmail API error modifying star status for ${messageId}:`, err);
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("403") || msg.includes("insufficient") || msg.includes("permission") || msg.includes("scope")) {
+      throw new Error("Additional Gmail permission required. Please upgrade Gmail access.");
+    }
+    throw new Error("Failed to update Gmail star status.");
+  }
+
+  const updatedLabelsArr = (message.labels ? message.labels.split(",") : []).filter((l) => l.trim().length > 0);
+  let newLabelsArr: string[];
+  if (isStarred) {
+    newLabelsArr = updatedLabelsArr.includes("STARRED") ? updatedLabelsArr : [...updatedLabelsArr, "STARRED"];
+  } else {
+    newLabelsArr = updatedLabelsArr.filter((l) => l !== "STARRED");
+  }
+
+  const updatedMessage = await prisma.emailMessage.update({
+    where: { id: message.id },
+    data: {
+      labels: newLabelsArr.join(","),
+    },
+    include: {
+      connectedAccount: {
+        select: { id: true, email: true, providerAccountId: true, scope: true },
+      },
+    },
+  });
+
+  return updatedMessage;
+}
+
+/**
+ * Archives a message in Gmail (removes INBOX label) and updates SynapseOS DB.
+ */
+export async function archiveMessage(userId: string, messageId: string) {
+  const message = await prisma.emailMessage.findFirst({
+    where: { id: messageId, userId },
+    include: { connectedAccount: true },
+  });
+
+  if (!message) {
+    throw new Error("Email message not found or unauthorized.");
+  }
+
+  const clientInfo = await getGmailOAuth2Client(userId, message.connectedAccountId);
+  if (!clientInfo) {
+    throw new Error("Connected Gmail account not found or unauthenticated.");
+  }
+
+  const { oauth2Client, connectedAccount } = clientInfo;
+
+  const scope = connectedAccount.scope || "";
+  if (!scope.includes("gmail.modify")) {
+    throw new Error("Additional Gmail permission required. Please upgrade Gmail access.");
+  }
+
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  try {
+    await gmail.users.messages.modify({
+      userId: "me",
+      id: message.gmailMessageId,
+      requestBody: { removeLabelIds: ["INBOX"] },
+    });
+  } catch (err: unknown) {
+    console.error(`Gmail API error archiving message ${messageId}:`, err);
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("403") || msg.includes("insufficient") || msg.includes("permission") || msg.includes("scope")) {
+      throw new Error("Additional Gmail permission required. Please upgrade Gmail access.");
+    }
+    throw new Error("Failed to archive Gmail message.");
+  }
+
+  const updatedLabelsArr = (message.labels ? message.labels.split(",") : []).filter((l) => l.trim().length > 0);
+  const newLabelsArr = updatedLabelsArr.filter((l) => l !== "INBOX");
+
+  const updatedMessage = await prisma.emailMessage.update({
+    where: { id: message.id },
+    data: {
+      labels: newLabelsArr.join(","),
+    },
+    include: {
+      connectedAccount: {
+        select: { id: true, email: true, providerAccountId: true, scope: true },
+      },
+    },
+  });
+
+  return updatedMessage;
+}
+
+

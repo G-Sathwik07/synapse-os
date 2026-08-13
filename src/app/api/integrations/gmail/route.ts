@@ -34,13 +34,19 @@ export async function GET() {
       where: { userId },
     });
 
-    const accounts = connectedAccounts.map((acc) => ({
-      id: acc.id,
-      email: acc.email || acc.providerAccountId,
-      providerAccountId: acc.providerAccountId,
-      lastSyncedAt: acc.updatedAt.toISOString(),
-      messageCount: acc._count.emailMessages,
-    }));
+    const accounts = connectedAccounts.map((acc) => {
+      const scopeStr = acc.scope || "";
+      const hasModifyAccess = scopeStr.includes("gmail.modify");
+      return {
+        id: acc.id,
+        email: acc.email || acc.providerAccountId,
+        providerAccountId: acc.providerAccountId,
+        lastSyncedAt: acc.updatedAt.toISOString(),
+        messageCount: acc._count.emailMessages,
+        scope: acc.scope,
+        hasModifyAccess,
+      };
+    });
 
     return NextResponse.json({
       connected: true,

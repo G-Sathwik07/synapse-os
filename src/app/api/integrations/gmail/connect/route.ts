@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "select_account consent",
-    scope: ["https://www.googleapis.com/auth/gmail.readonly"],
+    scope: ["https://www.googleapis.com/auth/gmail.modify"],
   });
 
   return NextResponse.redirect(authUrl);

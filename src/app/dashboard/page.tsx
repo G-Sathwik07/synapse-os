@@ -306,7 +306,7 @@ export default async function Page() {
                 </Link>
               </div>
             ) : (
-              <div className="max-h-[360px] overflow-y-auto space-y-3 pr-1">
+              <div className="max-h-[290px] overflow-y-auto space-y-3 pr-1">
                 {rawEmails.length > 0 && realEmails.every(m => !m.aiProcessedAt) && (
                   <div className="rounded-xl border border-violet-400/20 bg-violet-500/10 p-2.5 text-xs text-violet-200 flex items-center justify-between mb-2">
                     <span className="flex items-center gap-1.5">
@@ -338,13 +338,13 @@ export default async function Page() {
                   const category = m.aiCategory;
                   const actionable = m.aiActionable;
                   const summary = m.aiSummary;
-                  const reason = m.aiReason;
                   const isProcessed = Boolean(m.aiProcessedAt);
 
                   return (
-                    <div
+                    <Link
                       key={m.id}
-                      className={`group flex flex-col gap-2 rounded-xl p-3.5 transition-all border ${
+                      href={`/dashboard/email/${m.id}`}
+                      className={`group flex flex-col gap-2 rounded-xl p-3.5 transition-all border block cursor-pointer hover:border-azure-400/50 ${
                         unread
                           ? "border-azure-400/25 bg-azure-500/[0.03] hover:bg-azure-500/[0.06]"
                           : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]"
@@ -430,14 +430,8 @@ export default async function Page() {
                         </div>
                       )}
 
-                      {/* AI Priority Reason */}
-                      {reason && (
-                        <div className="text-[11px] text-slate-400 flex items-start gap-1.5 bg-white/[0.02] px-2.5 py-1.5 rounded-lg border border-white/[0.04]">
-                          <span className="font-semibold text-violet-300 shrink-0">Why:</span>
-                          <span className="leading-snug text-slate-300">{reason}</span>
-                        </div>
-                      )}
-                    </div>
+
+                    </Link>
                   );
                 })}
               </div>
