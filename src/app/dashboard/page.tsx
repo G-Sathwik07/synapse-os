@@ -10,15 +10,16 @@ import {
   ArrowRight,
   Brain,
   Zap,
-  Check,
   Clock,
   FileText,
   TrendingUp,
   Plus,
   } from 'lucide-react';
-import { todaysPriorities, recentActivity, aiSuggestion, integrations } from '@/lib/mock';
+import { recentActivity, integrations } from '@/lib/mock';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { getNormalizedBriefItems, generateBriefData, BriefInsight } from '@/lib/brief/brief-service';
+import { BriefRefreshButton } from '@/components/BriefRefreshButton';
 
 function formatTimeAgoDashboard(date: Date): string {
   try {
@@ -114,6 +115,35 @@ export default async function Page() {
   }) : 0;
   const firstName = session?.user?.name ? session.user.name.split(' ')[0] : 'User';
 
+  // Load Today's Brief state (Milestone 3.4)
+  const briefData = await getNormalizedBriefItems(userId || "");
+
+  let briefInsights: BriefInsight[] = [];
+  let briefSynthesis = "";
+  if (briefData.hasEmails && !briefData.hasPendingAI) {
+    const briefResult = await generateBriefData(userId || "", briefData.items);
+    briefInsights = briefResult.insights;
+    briefSynthesis = briefResult.synthesis;
+  }
+
+  const currentDate = new Date();
+  const dateOptions: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
+  const localDateStr = currentDate.toLocaleDateString('en-US', dateOptions);
+
+  let dateAndStatsText = `${localDateStr}`;
+  if (!briefData.hasGmailConnected) {
+    dateAndStatsText += " · Connect Gmail to get started";
+  } else if (!briefData.hasEmails) {
+    dateAndStatsText += " · No email activity";
+  } else if (briefData.hasPendingAI) {
+    dateAndStatsText += " · AI analysis in progress";
+  } else {
+    dateAndStatsText += ` · ${briefInsights.length} ${briefInsights.length === 1 ? 'thing matters' : 'things matter'} today`;
+    if (briefSynthesis) {
+      dateAndStatsText += " · AI briefing active";
+    }
+  }
+
   return (
     <AppShell current="/dashboard">
       <div className="mx-auto max-w-7xl space-y-6 p-6 lg:p-8">
@@ -125,9 +155,10 @@ export default async function Page() {
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Good morning, {firstName}</p>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white">Today&apos;s Brief</h1>
-            <p className="mt-2 text-sm text-slate-400">Thursday, July 31 · 5 priorities · 1 AI suggestion</p>
+            <p className="mt-2 text-sm text-slate-400">{dateAndStatsText}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            {briefData.hasGmailConnected && <BriefRefreshButton />}
             <Link href='/memory' className="btn-ghost-sm">
               <Brain className="h-3.5 w-3.5 text-azure-300" />
               Open Memory
@@ -139,40 +170,68 @@ export default async function Page() {
           </div>
         </div>
 
-        {/* Priorities row */}
-        <div className="relative mt-6 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
-          {todaysPriorities.map((p) => {
-            const Icon = kindIcon(p.kind);
-            const color = kindColor(p.kind);
-            const bg = kindBg(p.kind);
-            return (
-              <div key={p.id} className="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5 transition-all hover:border-white/12 hover:bg-white/[0.04] hover:shadow-soft">
-                <div className="flex items-center justify-between">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 ${bg}`}>
-                    <Icon className={`h-4 w-4 ${color}`} />
-                  </div>
-                  <span className="text-[10px] uppercase tracking-wider text-slate-600">{p.due}</span>
-                </div>
-                <p className="mt-2.5 text-sm font-medium leading-snug text-slate-200">{p.label}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{p.meta}</p>
+        {/* Priorities row or placeholder states */}
+        {!briefData.hasGmailConnected ? (
+          <div className="relative mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
+            <p className="text-sm text-slate-400">Connect Gmail to let SynapseOS generate your daily brief.</p>
+            <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-medium text-slate-200 transition-all hover:bg-white/[0.06] hover:text-white">
+              Connect Gmail
+            </Link>
+          </div>
+        ) : !briefData.hasEmails ? (
+          <div className="relative mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
+            <p className="text-sm text-slate-400">No email activity to summarize yet.</p>
+            <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-medium text-slate-200 transition-all hover:bg-white/[0.06] hover:text-white">
+              Manage Connections
+            </Link>
+          </div>
+        ) : briefData.hasPendingAI ? (
+          <div className="relative mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center flex flex-col items-center">
+            <div className="animate-pulse flex flex-col items-center">
+              <Sparkles className="h-6 w-6 text-violet-400 animate-spin mb-2" style={{ animationDuration: '3s' }} />
+              <p className="text-sm text-slate-300 font-medium">AI analysis is in progress</p>
+              <p className="text-xs text-slate-500 mt-1">Please wait while we process your emails for Today&apos;s Brief...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="relative mt-6 space-y-2.5">
+            {briefInsights.length === 0 ? (
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center w-full">
+                <p className="text-sm font-semibold text-white">You&apos;re all caught up.</p>
+                <p className="text-xs text-slate-500 mt-1">No important activity or upcoming actions require your attention today.</p>
               </div>
-            );
-          })}
-        </div>
+            ) : (
+              briefInsights.map((insight, idx) => {
+                const styles = getInsightBadgeStyles(insight.category);
+                return (
+                  <Link
+                    key={idx}
+                    href={`/dashboard/email/${insight.emailId}`}
+                    className="group flex items-start gap-3 rounded-xl border border-white/[0.04] bg-white/[0.015] p-3 transition-all hover:border-azure-400/20 hover:bg-white/[0.04] cursor-pointer block"
+                  >
+                    <span className={`shrink-0 rounded ${styles.bg} border ${styles.border} px-2 py-0.5 text-[9px] font-bold ${styles.text} uppercase tracking-wider`}>
+                      {insight.category}
+                    </span>
+                    <p className="text-xs text-slate-300 leading-snug group-hover:text-white transition-colors">
+                      {insight.description}
+                    </p>
+                  </Link>
+                );
+              })
+            )}
+          </div>
+        )}
 
-        {/* AI suggestion */}
-        <div className="relative mt-4 flex items-start gap-3 rounded-xl border border-violet-400/20 bg-violet-500/5 p-4">
-          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" />
-          <div className="flex-1">
-            <p className="text-xs font-medium text-violet-300">AI Suggestion · {Math.round(aiSuggestion.confidence * 100)}% confidence</p>
-            <p className="mt-1 text-sm text-slate-200">{aiSuggestion.title}</p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">{aiSuggestion.reason}</p>
+        {/* AI suggestion/synthesis */}
+        {briefData.hasEmails && !briefData.hasPendingAI && briefSynthesis && (
+          <div className="relative mt-4 flex items-start gap-3 rounded-xl border border-violet-400/20 bg-violet-500/5 p-4">
+            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-violet-300">AI Intelligence · Executive Briefing</p>
+              <p className="mt-1.5 text-sm leading-relaxed text-slate-200">{briefSynthesis}</p>
+            </div>
           </div>
-          <div className="flex shrink-0 gap-2">
-            <button className="btn-ghost-sm border-violet-400/30 bg-violet-500/10 text-violet-200">Accept</button>
-            <button className="btn-ghost-sm">Dismiss</button>
-          </div>
-        </div>
+        )}
       </section>
 
       {/* Main grid */}
@@ -501,36 +560,6 @@ export default async function Page() {
   return <h2 className="text-sm font-semibold text-white">{title}</h2>;
 }
 
-function kindIcon(kind: string) {
-  const map: Record<string, React.ComponentType<{ className?: string }>> = {
-    interview: Calendar,
-    assignment: FileText,
-    pr: Github,
-    conflict: Check,
-    email: Mail,
-  };
-  return map[kind] ?? Clock;
-}
-function kindColor(kind: string) {
-  const map: Record<string, string> = {
-    interview: 'text-azure-300',
-    assignment: 'text-amber-400',
-    pr: 'text-slate-300',
-    conflict: 'text-emerald-400',
-    email: 'text-rose-400',
-  };
-  return map[kind] ?? 'text-slate-400';
-}
-function kindBg(kind: string) {
-  const map: Record<string, string> = {
-    interview: 'bg-azure-400/10',
-    assignment: 'bg-amber-400/10',
-    pr: 'bg-white/[0.06]',
-    conflict: 'bg-emerald-400/10',
-    email: 'bg-rose-400/10',
-  };
-  return map[kind] ?? 'bg-white/[0.03]';
-}
 function activityIcon(type: string) {
   const map: Record<string, React.ComponentType<{ className?: string }>> = {
     email: Mail,
@@ -555,3 +584,19 @@ function activityColor(type: string) {
   };
   return map[type] ?? 'text-slate-400';
 }
+
+function getInsightBadgeStyles(category: string): { bg: string; border: string; text: string } {
+  const map: Record<string, { bg: string; border: string; text: string }> = {
+    PLACEMENT: { bg: 'bg-rose-500/10 border-rose-500/20', border: 'border-rose-500/20', text: 'text-rose-400' },
+    DEADLINE: { bg: 'bg-amber-500/10 border-amber-500/20', border: 'border-amber-500/20', text: 'text-amber-400' },
+    SECURITY: { bg: 'bg-red-500/10 border-red-500/20', border: 'border-red-500/20', text: 'text-red-400' },
+    OPPORTUNITY: { bg: 'bg-emerald-500/10 border-emerald-500/20', border: 'border-emerald-500/20', text: 'text-emerald-400' },
+    COLLEGE: { bg: 'bg-indigo-500/10 border-indigo-500/20', border: 'border-indigo-500/20', text: 'text-indigo-400' },
+    WORK: { bg: 'bg-sky-500/10 border-sky-500/20', border: 'border-sky-500/20', text: 'text-sky-400' },
+    FINANCE: { bg: 'bg-teal-500/10 border-teal-500/20', border: 'border-teal-500/20', text: 'text-teal-400' },
+    PERSONAL: { bg: 'bg-fuchsia-500/10 border-fuchsia-500/20', border: 'border-fuchsia-500/20', text: 'text-fuchsia-400' },
+    TRANSACTION: { bg: 'bg-cyan-500/10 border-cyan-500/20', border: 'border-cyan-500/20', text: 'text-cyan-400' },
+  };
+  return map[category.toUpperCase()] ?? { bg: 'bg-slate-500/10 border-slate-500/20', border: 'border-slate-500/20', text: 'text-slate-400' };
+}
+
