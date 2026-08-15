@@ -4,8 +4,8 @@ import { AppShell } from '@/components/AppShell';
 import { useState, useEffect } from 'react';
 import { integrations } from '@/lib/mock';
 import { ServiceIcon } from '@/components/ServiceIcon';
-import { Zap, RefreshCw, Plus, Shield, Clock, AlertTriangle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { Zap, RefreshCw, Plus, Shield, Clock } from 'lucide-react';
+import Link from 'next/link';
 
 interface GmailAccount {
   id: string;
@@ -16,24 +16,9 @@ interface GmailAccount {
   hasModifyAccess?: boolean;
 }
 
-function formatTimeAgo(dateStr: string): string {
-  try {
-    const date = new Date(dateStr);
-    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-    if (seconds < 60) return "Just now";
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  } catch {
-    return "Never";
-  }
-}
+
 
 export default function Page() {
-  const router = useRouter();
 
   const [otherItems, setOtherItems] = useState(() => 
     integrations.filter(item => item.id !== 'gmail')
@@ -43,10 +28,6 @@ export default function Page() {
   const [gmailLoading, setGmailLoading] = useState(true);
 
   const [connecting, setConnecting] = useState(false);
-  const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
-  const [confirmDisconnectId, setConfirmDisconnectId] = useState<string | null>(null);
-  const [syncFeedback, setSyncFeedback] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let ignore = false;
@@ -80,15 +61,7 @@ export default function Page() {
     };
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && confirmDisconnectId) {
-        setConfirmDisconnectId(null);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [confirmDisconnectId]);
+
 
   const connectedCount = gmailAccounts.length + otherItems.filter((i) => i.connected).length;
   const totalServicesCount = (gmailAccounts.length > 0 ? gmailAccounts.length : 1) + otherItems.length;
@@ -107,65 +80,7 @@ export default function Page() {
     window.location.href = "/api/integrations/gmail/connect";
   };
 
-  const handleDisconnectGmail = async (accountId: string) => {
-    setDisconnectingId(accountId);
-    try {
-      const res = await fetch(`/api/integrations/gmail?id=${accountId}`, { method: "DELETE" });
-      if (res.ok) {
-        setConfirmDisconnectId(null);
-        setGmailAccounts((prev) => prev.filter((acc) => acc.id !== accountId));
-        setSyncFeedback((prev) => {
-          const next = { ...prev };
-          delete next[accountId];
-          return next;
-        });
-        router.refresh();
-      }
-    } catch (err) {
-      console.error("Failed to disconnect Gmail:", err);
-    } finally {
-      setDisconnectingId(null);
-    }
-  };
 
-  const handleSyncGmail = async (accountId: string) => {
-    setSyncingId(accountId);
-    setSyncFeedback((prev) => ({ ...prev, [accountId]: "" }));
-    try {
-      const res = await fetch("/api/integrations/gmail/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectedAccountId: accountId }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        const feedbackMsg =
-          data.newCount !== undefined || data.updatedCount !== undefined
-            ? `Synced: ${data.newCount || 0} new, ${data.updatedCount || 0} updated`
-            : `Synced ${data.count} messages.`;
-        setSyncFeedback((prev) => ({ ...prev, [accountId]: feedbackMsg }));
-        const nowStr = new Date().toISOString();
-        setGmailAccounts((prev) =>
-          prev.map((acc) =>
-            acc.id === accountId ? { ...acc, lastSyncedAt: nowStr } : acc
-          )
-        );
-        router.refresh();
-      } else {
-        setSyncFeedback((prev) => ({
-          ...prev,
-          [accountId]: data.error || "Unable to sync Gmail. Please reconnect or try again.",
-        }));
-      }
-    } catch {
-      setSyncFeedback((prev) => ({
-        ...prev,
-        [accountId]: "Unable to sync Gmail. Please reconnect or try again.",
-      }));
-    } finally {
-      setSyncingId(null);
-    }
-  };
 
   return (
     <AppShell current="/integrations">
@@ -241,147 +156,61 @@ export default function Page() {
               </div>
             </div>
           ) : (
-            /* Active Gmail Account Cards */
-            gmailAccounts.map((acc) => {
-              const isSyncing = syncingId === acc.id;
-              const isDisconnecting = disconnectingId === acc.id;
-              const isConfirming = confirmDisconnectId === acc.id;
-              const feedback = syncFeedback[acc.id];
-              const timeAgo = formatTimeAgo(acc.lastSyncedAt);
-
-              return (
-                <div key={acc.id} className="surface surface-hover group flex flex-col p-5 relative overflow-hidden">
-                  {/* Overlay Disconnect Confirmation */}
-                  {isConfirming && (
-                    <div
-                      role="dialog"
-                      aria-modal="true"
-                      aria-label="Confirm Disconnect"
-                      className="absolute inset-0 z-20 flex flex-col justify-between rounded-2xl border border-rose-500/20 bg-ink-900/95 p-4.5 backdrop-blur-xl transition-all animate-in fade-in zoom-in-95 duration-150 shadow-card"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2 text-rose-400">
-                          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
-                          <h4 className="text-xs font-semibold text-white">Disconnect this Gmail account?</h4>
-                        </div>
-                        <p className="mt-1 truncate text-[11px] font-medium text-slate-300">
-                          {acc.email}
-                        </p>
-                        <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
-                          Synced emails will remain in SynapseOS, but SynapseOS will no longer access this Gmail account.
-                        </p>
-                      </div>
-                      <div className="mt-3 flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDisconnectId(null)}
-                          disabled={isDisconnecting}
-                          className="btn-ghost-sm text-[11px] py-1 px-3 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDisconnectGmail(acc.id)}
-                          disabled={isDisconnecting}
-                          className="rounded-xl border border-rose-500/30 bg-rose-500/20 px-3 py-1 text-[11px] font-medium text-rose-300 transition-colors hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Header row */}
-                  <div className="flex items-start justify-between gap-3 min-w-0">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] shadow-soft shrink-0">
-                        <ServiceIcon id="gmail" size={24} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-semibold text-white">Gmail</h3>
-                        <p className="truncate text-xs text-slate-400 font-medium" title={acc.email}>
-                          {acc.email}
-                        </p>
-                      </div>
-                    </div>
-                    <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium text-emerald-400 shrink-0 whitespace-nowrap">
-                      <span className="dot bg-emerald-400" /> Connected
-                    </span>
+            /* Active Gmail Account Card (Overview) */
+            <div className="surface flex flex-col p-5 relative min-h-[220px]">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] shadow-soft shrink-0">
+                    <ServiceIcon id="gmail" size={24} />
                   </div>
-
-                  {/* Status */}
-                  <div className="mt-4 space-y-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-slate-500"><Clock className="h-3 w-3" /> Last sync</span>
-                      <span className="text-slate-300">{timeAgo}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-slate-500"><Shield className="h-3 w-3" /> Scope Access</span>
-                      <span className="text-slate-300">{acc.hasModifyAccess ? "Read & Modify" : "Read Only"}</span>
-                    </div>
-                  </div>
-
-                  {/* Permissions chips */}
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {acc.hasModifyAccess ? (
-                      <span className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">
-                        Read & Modify emails
-                      </span>
-                    ) : (
-                      <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-300 flex items-center gap-1">
-                        Read emails (Upgrade needed for actions)
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="mt-5 flex flex-col gap-2 border-t border-white/[0.06] pt-4">
-                    {acc.hasModifyAccess === false && (
-                      <button
-                        onClick={handleConnectGmail}
-                        disabled={connecting}
-                        className="rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-3 py-1.5 text-xs font-semibold text-amber-200 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 mb-1"
-                      >
-                        <Shield className="h-3.5 w-3.5 text-amber-400" /> Upgrade Gmail Access
-                      </button>
-                    )}
-
-                    {feedback && (
-                      <p className={`text-[10px] font-medium ${feedback.includes("Unable") || feedback.includes("expired") || feedback.includes("permission") ? "text-rose-400" : "text-emerald-400"}`}>
-                        {feedback}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2 w-full">
-                      <button
-                        onClick={() => handleSyncGmail(acc.id)}
-                        disabled={isSyncing || isDisconnecting}
-                        className="btn-ghost-sm flex-1 disabled:opacity-50 text-xs"
-                      >
-                        <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                        {isSyncing ? 'Syncing...' : 'Sync now'}
-                      </button>
-
-                      <button
-                        onClick={() => setConfirmDisconnectId(acc.id)}
-                        disabled={isSyncing || isDisconnecting}
-                        className="btn-ghost-sm text-rose-400 hover:border-rose-400/30 hover:bg-rose-400/10 disabled:opacity-50 text-xs"
-                      >
-                        Disconnect
-                      </button>
-                    </div>
-
-                    <button
-                      onClick={handleConnectGmail}
-                      disabled={connecting}
-                      className="mt-1 flex items-center justify-center gap-1 text-[11px] font-medium text-azure-300 hover:text-azure-200 transition-colors disabled:opacity-50"
-                    >
-                      <Plus className="h-3 w-3" /> Connect another Gmail
-                    </button>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold text-white">Gmail</h3>
+                    <p className="truncate text-xs text-slate-500 font-medium">
+                      Email & Communication
+                    </p>
                   </div>
                 </div>
-              );
-            })
+                <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium text-emerald-400 shrink-0 whitespace-nowrap">
+                  <span className="dot bg-emerald-400" /> Connected
+                </span>
+              </div>
+
+              <div 
+                className="mt-3.5 flex-1 overflow-y-auto pr-1 max-h-[92px] space-y-2.5 subtle-scrollbar"
+              >
+                {gmailAccounts.map((acc) => (
+                  <div key={acc.id} className="flex items-start gap-2.5 py-0.5 min-w-0">
+                    <span className="mt-1.5 dot bg-emerald-400 shrink-0 animate-pulse-soft" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-slate-200" title={acc.email}>
+                        {acc.email}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        {acc.hasModifyAccess ? "Read & Modify" : "Read Only"}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Actions Footer */}
+              <div className="mt-4 border-t border-white/[0.06] pt-3.5 flex items-center justify-between">
+                <button
+                  onClick={handleConnectGmail}
+                  disabled={connecting}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-azure-300 hover:text-azure-200 transition-colors disabled:opacity-50"
+                >
+                  <Plus className="h-3 w-3" /> Connect another Gmail
+                </button>
+                <Link
+                  href="/integrations/gmail"
+                  className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-white transition-colors"
+                >
+                  Manage →
+                </Link>
+              </div>
+            </div>
           )}
 
           {/* Other Integration Cards */}
