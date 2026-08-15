@@ -16,18 +16,27 @@ interface GmailAccount {
   hasModifyAccess?: boolean;
 }
 
-
+interface CalendarAccount {
+  id: string;
+  email: string;
+  lastSyncedAt: string;
+  selectedCalendarsCount: number;
+  eventCount: number;
+  scope?: string | null;
+}
 
 export default function Page() {
-
-  const [otherItems, setOtherItems] = useState(() => 
-    integrations.filter(item => item.id !== 'gmail')
+  const [otherItems, setOtherItems] = useState(() =>
+    integrations.filter(item => item.id !== 'gmail' && item.id !== 'calendar')
   );
 
   const [gmailAccounts, setGmailAccounts] = useState<GmailAccount[]>([]);
   const [gmailLoading, setGmailLoading] = useState(true);
+  const [connectingGmail, setConnectingGmail] = useState(false);
 
-  const [connecting, setConnecting] = useState(false);
+  const [calendarAccounts, setCalendarAccounts] = useState<CalendarAccount[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const [connectingCalendar, setConnectingCalendar] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -61,10 +70,47 @@ export default function Page() {
     };
   }, []);
 
+  useEffect(() => {
+    let ignore = false;
+    async function loadCalendarStatus() {
+      try {
+        const res = await fetch("/api/integrations/calendar");
+        if (res.ok) {
+          const data = await res.json();
+          if (!ignore) {
+            if (data.connected && Array.isArray(data.accounts)) {
+              setCalendarAccounts(data.accounts);
+            } else {
+              setCalendarAccounts([]);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load Calendar status:", err);
+        if (!ignore) {
+          setCalendarAccounts([]);
+        }
+      } finally {
+        if (!ignore) {
+          setCalendarLoading(false);
+        }
+      }
+    }
+    loadCalendarStatus();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
+  const connectedCount =
+    gmailAccounts.length +
+    calendarAccounts.length +
+    otherItems.filter((i) => i.connected).length;
 
-  const connectedCount = gmailAccounts.length + otherItems.filter((i) => i.connected).length;
-  const totalServicesCount = (gmailAccounts.length > 0 ? gmailAccounts.length : 1) + otherItems.length;
+  const totalServicesCount =
+    (gmailAccounts.length > 0 ? gmailAccounts.length : 1) +
+    (calendarAccounts.length > 0 ? calendarAccounts.length : 1) +
+    otherItems.length;
 
   const toggleOther = (id: string) => {
     setOtherItems((prev) =>
@@ -75,12 +121,16 @@ export default function Page() {
   };
 
   const handleConnectGmail = () => {
-    setConnecting(true);
+    setConnectingGmail(true);
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = "/api/integrations/gmail/connect";
   };
 
-
+  const handleConnectCalendar = () => {
+    setConnectingCalendar(true);
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.href = "/api/integrations/calendar/connect";
+  };
 
   return (
     <AppShell current="/integrations">
@@ -105,12 +155,12 @@ export default function Page() {
 
         {/* Grid */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Gmail Cards */}
+          {/* Gmail Card */}
           {gmailLoading ? (
-            <div className="surface flex flex-col p-5 animate-pulse">
+            <div className="surface flex flex-col p-5 animate-pulse min-h-[220px]">
               <div className="flex items-center gap-3">
                 <div className="h-12 w-12 rounded-xl bg-white/10" />
-                <div className="space-y-2">
+                <div className="space-y-2 flex-1">
                   <div className="h-4 w-20 bg-white/10 rounded" />
                   <div className="h-3 w-32 bg-white/5 rounded" />
                 </div>
@@ -118,7 +168,7 @@ export default function Page() {
             </div>
           ) : gmailAccounts.length === 0 ? (
             /* Disconnected Gmail Card */
-            <div className="surface surface-hover group flex flex-col p-5 relative">
+            <div className="surface surface-hover group flex flex-col p-5 relative min-h-[220px]">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] shadow-soft">
@@ -134,7 +184,7 @@ export default function Page() {
                 </span>
               </div>
 
-              <div className="mt-4 space-y-2 text-xs">
+              <div className="mt-4 space-y-2 text-xs flex-1">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-slate-500"><Clock className="h-3 w-3" /> Last sync</span>
                   <span className="text-slate-300">Never</span>
@@ -148,10 +198,10 @@ export default function Page() {
               <div className="mt-5 flex flex-col gap-2 border-t border-white/[0.06] pt-4">
                 <button
                   onClick={handleConnectGmail}
-                  disabled={connecting}
+                  disabled={connectingGmail}
                   className="btn-primary w-full text-xs py-2 disabled:opacity-50"
                 >
-                  <Plus className="h-3.5 w-3.5" /> {connecting ? 'Connecting...' : 'Connect'}
+                  <Plus className="h-3.5 w-3.5" /> {connectingGmail ? 'Connecting...' : 'Connect'}
                 </button>
               </div>
             </div>
@@ -198,7 +248,7 @@ export default function Page() {
               <div className="mt-4 border-t border-white/[0.06] pt-3.5 flex items-center justify-between">
                 <button
                   onClick={handleConnectGmail}
-                  disabled={connecting}
+                  disabled={connectingGmail}
                   className="flex items-center gap-1 text-[11px] font-semibold text-azure-300 hover:text-azure-200 transition-colors disabled:opacity-50"
                 >
                   <Plus className="h-3 w-3" /> Connect another Gmail
@@ -213,9 +263,117 @@ export default function Page() {
             </div>
           )}
 
+          {/* Google Calendar Card */}
+          {calendarLoading ? (
+            <div className="surface flex flex-col p-5 animate-pulse min-h-[220px]">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-xl bg-white/10" />
+                <div className="space-y-2 flex-1">
+                  <div className="h-4 w-20 bg-white/10 rounded" />
+                  <div className="h-3 w-32 bg-white/5 rounded" />
+                </div>
+              </div>
+            </div>
+          ) : calendarAccounts.length === 0 ? (
+            /* Disconnected Calendar Card */
+            <div className="surface surface-hover group flex flex-col p-5 relative min-h-[220px]">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] shadow-soft">
+                    <ServiceIcon id="calendar" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">Google Calendar</h3>
+                    <p className="text-xs text-slate-500">Schedules & Events</p>
+                  </div>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-slate-500">
+                  Not connected
+                </span>
+              </div>
+
+              <div className="mt-4 space-y-2 text-xs flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-slate-500"><Clock className="h-3 w-3" /> Last sync</span>
+                  <span className="text-slate-300">Never</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-slate-500"><Shield className="h-3 w-3" /> Permissions</span>
+                  <span className="text-slate-300">1</span>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-col gap-2 border-t border-white/[0.06] pt-4">
+                <button
+                  onClick={handleConnectCalendar}
+                  disabled={connectingCalendar}
+                  className="btn-primary w-full text-xs py-2 disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" /> {connectingCalendar ? 'Connecting...' : 'Connect'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Active Calendar Account Card (Overview) */
+            <div className="surface flex flex-col p-5 relative min-h-[220px]">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] shadow-soft shrink-0">
+                    <ServiceIcon id="calendar" size={24} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold text-white">Google Calendar</h3>
+                    <p className="truncate text-xs text-slate-500 font-medium">
+                      Schedules & Events
+                    </p>
+                  </div>
+                </div>
+                <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium text-emerald-400 shrink-0 whitespace-nowrap">
+                  <span className="dot bg-emerald-400" /> Connected
+                </span>
+              </div>
+
+              <div 
+                className="mt-3.5 flex-1 overflow-y-auto pr-1 max-h-[92px] space-y-2.5 subtle-scrollbar"
+              >
+                {calendarAccounts.map((acc) => (
+                  <div key={acc.id} className="flex items-start gap-2.5 py-0.5 min-w-0">
+                    <span className="mt-1.5 dot bg-emerald-400 shrink-0 animate-pulse-soft" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-slate-200" title={acc.email}>
+                        {acc.email}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        {acc.selectedCalendarsCount} {acc.selectedCalendarsCount === 1 ? 'calendar' : 'calendars'} synced
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Actions Footer */}
+              <div className="mt-4 border-t border-white/[0.06] pt-3.5 flex items-center justify-between">
+                <button
+                  onClick={handleConnectCalendar}
+                  disabled={connectingCalendar}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-azure-300 hover:text-azure-200 transition-colors disabled:opacity-50"
+                >
+                  <Plus className="h-3 w-3" /> Connect another Calendar
+                </button>
+                <Link
+                  href="/integrations/calendar"
+                  className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-white transition-colors"
+                >
+                  Manage →
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Other Integration Cards */}
           {otherItems.map((i) => (
-            <div key={i.id} className="surface surface-hover group flex flex-col p-5">
+            <div key={i.id} className="surface surface-hover group flex flex-col p-5 min-h-[220px]">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] shadow-soft">
@@ -237,7 +395,7 @@ export default function Page() {
                 )}
               </div>
 
-              <div className="mt-4 space-y-2 text-xs">
+              <div className="mt-4 space-y-2 text-xs flex-1">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-slate-500"><Clock className="h-3 w-3" /> Last sync</span>
                   <span className="text-slate-300">{i.lastSync}</span>

@@ -7,6 +7,7 @@ import { Logo } from '@/components/Logo';
 import { useSession, signOut } from 'next-auth/react';
 import {
   LayoutDashboard,
+  CalendarDays,
   Search,
   Brain,
   Network,
@@ -22,6 +23,7 @@ import {
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/search', label: 'Search', icon: Search },
   { href: '/memory', label: 'Memory', icon: Brain },
   { href: '/knowledge-graph', label: 'Knowledge Graph', icon: Network },

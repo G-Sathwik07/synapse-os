@@ -61,6 +61,17 @@ export default async function Page({
   });
 
   if (!email) {
+    const calEvent = await prisma.calendarEvent.findFirst({
+      where: {
+        id: emailId,
+        userId: session.user.id,
+      },
+    });
+
+    if (calEvent) {
+      redirect("/calendar");
+    }
+
     notFound();
   }
 
