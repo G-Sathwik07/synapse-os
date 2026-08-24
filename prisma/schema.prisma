@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/client"
 }
 
 datasource db {
@@ -19,6 +20,8 @@ model User {
   emailMessages     EmailMessage[]
   connectedCalendars ConnectedCalendar[]
   calendarEvents     CalendarEvent[]
+  communicationConversations CommunicationConversation[]
+  communicationMessages    CommunicationMessage[]
 }
 
 model ConnectedAccount {
@@ -31,6 +34,7 @@ model ConnectedAccount {
   refreshToken      String?
   expiresAt         DateTime?
   scope             String?
+  status            String?   @default("CONNECTED")
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -38,6 +42,9 @@ model ConnectedAccount {
   emailMessages EmailMessage[]
   connectedCalendars ConnectedCalendar[]
   calendarEvents     CalendarEvent[]
+  whatsappSession    WhatsAppSession?
+  communicationConversations CommunicationConversation[]
+  communicationMessages    CommunicationMessage[]
 
   @@unique([provider, providerAccountId])
   @@index([userId])
@@ -161,5 +168,97 @@ model CalendarEvent {
   @@index([calendarId])
   @@index([startTime, endTime])
 }
+
+model WhatsAppSession {
+  id                 String           @id @default(uuid())
+  connectedAccountId String           @unique
+  creds              String           @db.Text
+  keys               String           @db.Text
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  connectedAccount   ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+}
+
+model CommunicationConversation {
+  id                   String                    @id @default(uuid())
+  userId               String
+  connectedAccountId   String
+  source               String                    // "whatsapp"
+  remoteConversationId String                    // JID for WhatsApp
+  title                String?
+  avatar               String?
+  isGroup              Boolean                   @default(false)
+  lastMessageAt        DateTime                  @default(now())
+  lastMessagePreview   String?
+  unreadCount          Int                       @default(0)
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  user                 User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectedAccount     ConnectedAccount          @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+  messages             CommunicationMessage[]
+  participants         CommunicationParticipant[]
+
+  @@unique([connectedAccountId, remoteConversationId])
+  @@index([userId])
+  @@index([connectedAccountId])
+  @@index([lastMessageAt])
+}
+
+model CommunicationParticipant {
+  id                   String                    @id @default(uuid())
+  conversationId       String
+  remoteParticipantId  String                    // JID / phone / external ID
+  phone                String?                   // Normalized phone number
+  displayName          String?
+  avatar               String?
+  role                 String?                   // admin, member, etc.
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  conversation         CommunicationConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, remoteParticipantId])
+  @@index([conversationId])
+}
+
+model CommunicationMessage {
+  id                 String                    @id @default(uuid())
+  userId             String
+  conversationId     String
+  connectedAccountId String
+  source             String                    // "whatsapp"
+  remoteMessageId    String
+  senderId           String
+  senderName         String?
+  text               String?
+  messageType        String                    @default("text") // "text", "image", "video", "audio", "document", etc.
+  isFromMe           Boolean                   @default(false)
+  isRead             Boolean                   @default(false)
+  sentAt             DateTime                  @default(now())
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  // AI Intelligence fields (similar to EmailMessage)
+  aiCategory         AICategory?
+  aiPriority         AIPriority?
+  aiActionable       Boolean?
+  aiSummary          String?
+  aiReason           String?
+  aiProcessedAt      DateTime?
+
+  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectedAccount   ConnectedAccount          @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+  conversation       CommunicationConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([connectedAccountId, remoteMessageId])
+  @@index([userId])
+  @@index([conversationId])
+  @@index([connectedAccountId])
+  @@index([sentAt])
+  @@index([userId, aiProcessedAt])
+}
+
 
 

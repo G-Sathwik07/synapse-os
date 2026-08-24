@@ -19,10 +19,12 @@ import {
   ChevronLeft,
   LogOut,
   Sparkles,
+  MessageSquare,
 } from 'lucide-react';
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/communications', label: 'Communications', icon: MessageSquare },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/search', label: 'Search', icon: Search },
   { href: '/memory', label: 'Memory', icon: Brain },

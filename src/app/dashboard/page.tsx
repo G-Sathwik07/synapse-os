@@ -15,7 +15,7 @@ import {
   TrendingUp,
   Plus,
   } from 'lucide-react';
-import { recentActivity, integrations } from '@/lib/mock';
+import { recentActivity } from '@/lib/mock';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getNormalizedBriefItems, generateBriefData, BriefInsight } from '@/lib/brief/brief-service';
@@ -52,17 +52,23 @@ export default async function Page() {
     select: { id: true, email: true, providerAccountId: true },
   }) : [];
 
-  const hasConnectedGmail = activeGmailAccounts.length > 0;
+  const activeWhatsAppAccounts = userId ? await prisma.connectedAccount.findMany({
+    where: {
+      userId,
+      provider: { in: ["whatsapp_baileys", "whatsapp_meta"] },
+      OR: [
+        { status: "CONNECTED" },
+        { status: null },
+      ],
+    },
+    select: { id: true, email: true, providerAccountId: true },
+  }) : [];
+
+  const hasConnectedGmail = activeGmailAccounts.length > 0 || activeWhatsAppAccounts.length > 0;
   const activeAccountIds = activeGmailAccounts.map(a => a.id);
+  const activeWhatsAppIds = activeWhatsAppAccounts.map(a => a.id);
 
-  const realConnectedApps = integrations.map(i => {
-    if (i.id === 'gmail') {
-      return { ...i, connected: hasConnectedGmail };
-    }
-    return i;
-  }).filter(i => i.connected);
-
-  const rawEmails = (userId && hasConnectedGmail) ? await prisma.emailMessage.findMany({
+  const rawEmails = (userId && activeGmailAccounts.length > 0) ? await prisma.emailMessage.findMany({
     where: {
       userId,
       connectedAccountId: { in: activeAccountIds },
@@ -79,13 +85,69 @@ export default async function Page() {
     take: 30,
   }) : [];
 
+  const rawWhatsAppMessages = (userId && activeWhatsAppAccounts.length > 0) ? await prisma.communicationMessage.findMany({
+    where: {
+      userId,
+      connectedAccountId: { in: activeWhatsAppIds },
+      isFromMe: false,
+      OR: [
+        { isRead: false },
+        { aiPriority: "HIGH" },
+      ],
+    },
+    include: {
+      connectedAccount: {
+        select: { email: true, providerAccountId: true },
+      },
+    },
+    orderBy: [
+      { sentAt: 'desc' },
+      { createdAt: 'desc' },
+    ],
+    take: 30,
+  }) : [];
+
+  const adaptedEmails = rawEmails.map(e => ({
+    id: e.id,
+    source: "gmail",
+    sender: e.sender,
+    subject: e.subject,
+    snippet: e.snippet,
+    receivedAt: e.receivedAt || e.createdAt,
+    isRead: e.isRead,
+    aiCategory: e.aiCategory,
+    aiPriority: e.aiPriority,
+    aiActionable: e.aiActionable,
+    aiSummary: e.aiSummary,
+    aiProcessedAt: e.aiProcessedAt,
+    connectedAccount: e.connectedAccount,
+  }));
+
+  const adaptedWhatsApp = rawWhatsAppMessages.map(w => ({
+    id: w.id,
+    source: "whatsapp",
+    sender: w.senderName || w.senderId,
+    subject: `Message from ${w.senderName || w.senderId}`,
+    snippet: w.text,
+    receivedAt: w.sentAt || w.createdAt,
+    isRead: w.isRead,
+    aiCategory: w.aiCategory,
+    aiPriority: w.aiPriority,
+    aiActionable: w.aiActionable,
+    aiSummary: w.aiSummary || w.text,
+    aiProcessedAt: w.aiProcessedAt,
+    connectedAccount: w.connectedAccount,
+  }));
+
+  const combinedItems = [...adaptedEmails, ...adaptedWhatsApp];
+
   const priorityWeights: Record<string, number> = {
     HIGH: 3,
     MEDIUM: 2,
     LOW: 1,
   };
 
-  const realEmails = [...rawEmails].sort((a, b) => {
+  const realEmails = combinedItems.sort((a, b) => {
     const aPriority = a.aiPriority ? (priorityWeights[a.aiPriority] || 0) : 0;
     const bPriority = b.aiPriority ? (priorityWeights[b.aiPriority] || 0) : 0;
 
@@ -106,13 +168,39 @@ export default async function Page() {
 
   const highPriorityCount = realEmails.filter(m => m.aiPriority === 'HIGH').length;
 
-  const unreadCount = hasConnectedGmail ? await prisma.emailMessage.count({
+  const unreadGmailCount = (userId && activeGmailAccounts.length > 0) ? await prisma.emailMessage.count({
     where: {
       userId,
       connectedAccountId: { in: activeAccountIds },
       isRead: false,
     },
   }) : 0;
+
+  const unreadWhatsAppCount = (userId && activeWhatsAppAccounts.length > 0) ? await prisma.communicationMessage.count({
+    where: {
+      userId,
+      connectedAccountId: { in: activeWhatsAppIds },
+      isFromMe: false,
+      isRead: false,
+    },
+  }) : 0;
+
+  const calendarAccountsCount = userId ? await prisma.connectedAccount.count({
+    where: {
+      userId,
+      provider: "google_calendar",
+      accessToken: { not: null },
+      refreshToken: { not: null },
+    },
+  }) : 0;
+
+  const realConnectedApps = [
+    ...(activeGmailAccounts.length > 0 ? [{ id: 'gmail', name: 'Gmail' }] : []),
+    ...(calendarAccountsCount > 0 ? [{ id: 'calendar', name: 'Google Calendar' }] : []),
+    ...(activeWhatsAppAccounts.length > 0 ? [{ id: 'whatsapp', name: 'WhatsApp' }] : []),
+  ];
+
+  const unreadCount = unreadGmailCount + unreadWhatsAppCount;
   const firstName = session?.user?.name ? session.user.name.split(' ')[0] : 'User';
 
   // Load Today's Brief state (Milestone 3.4)
@@ -132,9 +220,9 @@ export default async function Page() {
 
   let dateAndStatsText = `${localDateStr}`;
   if (!briefData.hasGmailConnected) {
-    dateAndStatsText += " · Connect Gmail to get started";
+    dateAndStatsText += " · Connect accounts to get started";
   } else if (!briefData.hasEmails) {
-    dateAndStatsText += " · No email activity";
+    dateAndStatsText += " · No recent activity";
   } else if (briefData.hasPendingAI) {
     dateAndStatsText += " · AI analysis in progress";
   } else {
@@ -173,14 +261,14 @@ export default async function Page() {
         {/* Priorities row or placeholder states */}
         {!briefData.hasGmailConnected ? (
           <div className="relative mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
-            <p className="text-sm text-slate-400">Connect Gmail to let SynapseOS generate your daily brief.</p>
+            <p className="text-sm text-slate-400">Connect Gmail or WhatsApp to let SynapseOS generate your daily brief.</p>
             <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-medium text-slate-200 transition-all hover:bg-white/[0.06] hover:text-white">
-              Connect Gmail
+              Connect Integrations
             </Link>
           </div>
         ) : !briefData.hasEmails ? (
           <div className="relative mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
-            <p className="text-sm text-slate-400">No email activity to summarize yet.</p>
+            <p className="text-sm text-slate-400">No activity to summarize yet.</p>
             <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-medium text-slate-200 transition-all hover:bg-white/[0.06] hover:text-white">
               Manage Connections
             </Link>
@@ -351,15 +439,15 @@ export default async function Page() {
             {!hasConnectedGmail ? (
               <div className="py-6 text-center">
                 <p className="text-xs text-slate-400">
-                  Connect Gmail to let SynapseOS identify emails that need your attention.
+                  Connect Gmail or WhatsApp to let SynapseOS identify messages that need your attention.
                 </p>
                 <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs font-medium text-slate-200 transition-all hover:bg-white/[0.06] hover:text-white">
-                  Connect Gmail
+                  Connect Integrations
                 </Link>
               </div>
             ) : realEmails.length === 0 ? (
               <div className="py-6 text-center">
-                <p className="text-xs text-slate-500">No emails synchronized yet.</p>
+                <p className="text-xs text-slate-500">No communication activity synchronized yet.</p>
                 <Link href="/integrations" className="mt-3 inline-flex rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs font-medium text-slate-300 transition-all hover:bg-white/[0.06] hover:text-white">
                   Sync now
                 </Link>
@@ -390,7 +478,7 @@ export default async function Page() {
                       if (emailMatch) displayName = emailMatch[1];
                     }
                   }
-                  const timeStr = m.receivedAt ? formatTimeAgoDashboard(m.receivedAt) : "";
+                  const timeStr = m.receivedAt ? formatTimeAgoDashboard(new Date(m.receivedAt)) : "";
                   const sourceEmail = m.connectedAccount?.email || m.connectedAccount?.providerAccountId;
 
                   const priority = m.aiPriority;
@@ -402,7 +490,7 @@ export default async function Page() {
                   return (
                     <Link
                       key={m.id}
-                      href={`/dashboard/email/${m.id}`}
+                      href={m.source === 'whatsapp' ? '/communications' : `/dashboard/email/${m.id}`}
                       className={`group flex flex-col gap-2 rounded-xl p-3.5 transition-all border block cursor-pointer hover:border-azure-400/50 ${
                         unread
                           ? "border-azure-400/25 bg-azure-500/[0.03] hover:bg-azure-500/[0.06]"
@@ -460,17 +548,23 @@ export default async function Page() {
                       {/* Sender & Subject Line */}
                       <div className="min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span className={`text-xs truncate ${unread ? 'font-bold text-white' : 'font-semibold text-slate-200'}`}>
+                          <span className={`text-xs truncate flex items-center gap-1.5 ${unread ? 'font-bold text-white' : 'font-semibold text-slate-200'}`}>
+                            <ServiceIcon id={m.source || 'gmail'} size={12} />
                             {displayName}
                           </span>
-                          {activeGmailAccounts.length > 1 && sourceEmail && (
+                          {m.source === 'gmail' && sourceEmail && (
                             <span className="text-[10px] text-slate-500 truncate shrink-0" title={sourceEmail}>
                               via {sourceEmail}
                             </span>
                           )}
+                          {m.source === 'whatsapp' && sourceEmail && (
+                            <span className="text-[10px] text-slate-500 truncate shrink-0" title={sourceEmail}>
+                              via +{sourceEmail}
+                            </span>
+                          )}
                         </div>
                         <p className={`text-xs mt-0.5 truncate ${unread ? 'font-medium text-slate-200' : 'text-slate-400'}`}>
-                          Subject: {m.subject || "(No Subject)"}
+                          {m.source === 'whatsapp' ? m.snippet : `Subject: ${m.subject || "(No Subject)"}`}
                         </p>
                       </div>
 
@@ -484,12 +578,10 @@ export default async function Page() {
                         </div>
                       ) : (
                         <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] p-2 text-xs text-slate-400 flex items-center justify-between">
-                          <span className="truncate">{m.snippet || "(No email snippet)"}</span>
+                          <span className="truncate">{m.snippet || "(No message snippet)"}</span>
                           <span className="text-[9px] text-amber-400/90 font-medium shrink-0 ml-2">Unclassified</span>
                         </div>
                       )}
-
-
                     </Link>
                   );
                 })}

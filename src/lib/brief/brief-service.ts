@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { BriefItem } from "./types";
 import { getGmailBriefItems } from "./gmail-adapter";
 import { getCalendarBriefItems } from "./calendar-adapter";
+import { getWhatsAppBriefItems } from "./whatsapp-adapter";
 import { getGeminiClient } from "../ai/gemini";
 import { Type } from "@google/genai";
 
@@ -181,16 +182,30 @@ export async function getNormalizedBriefItems(userId: string): Promise<{
     },
   });
 
-  const hasGmailConnected = gmailAccountsCount > 0 || calendarAccountsCount > 0;
+  // Check if WhatsApp is connected
+  const whatsappAccountsCount = await prisma.connectedAccount.count({
+    where: {
+      userId,
+      provider: { in: ["whatsapp_baileys", "whatsapp_meta"] },
+      OR: [
+        { status: "CONNECTED" },
+        { status: null },
+      ],
+    },
+  });
+
+  const hasGmailConnected = gmailAccountsCount > 0 || calendarAccountsCount > 0 || whatsappAccountsCount > 0;
   if (!hasGmailConnected) {
     return { items: [], hasPendingAI: false, hasGmailConnected: false, hasEmails: false };
   }
 
   const gmailItems = gmailAccountsCount > 0 ? await getGmailBriefItems(userId) : [];
   const calendarItems = calendarAccountsCount > 0 ? await getCalendarBriefItems(userId) : [];
+  const whatsappItems = whatsappAccountsCount > 0 ? await getWhatsAppBriefItems(userId) : [];
 
-  const items = [...gmailItems, ...calendarItems];
+  const items = [...gmailItems, ...calendarItems, ...whatsappItems];
   const hasEmails = items.length > 0;
+
 
   // Check if any of the recent items have pending AI processing (aiProcessedAt is null)
   const activeGmailAccounts = await prisma.connectedAccount.findMany({

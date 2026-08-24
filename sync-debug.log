@@ -1,0 +1,10 @@
+[Sync API Debug][2026-08-23T17:49:04.387Z] Received Sync POST request
+[Sync API Debug][2026-08-23T17:49:04.425Z] Parsed body: accountId = 0d3ad958-21f0-4fb6-a7ef-1f7bc8630403
+[Sync API Debug][2026-08-23T17:49:04.428Z] Fetching connectedAccount from DB for id: 0d3ad958-21f0-4fb6-a7ef-1f7bc8630403, userId: d07a032a-506f-4c27-a05d-71158bd7d1c3
+[Sync API Debug][2026-08-23T17:49:04.439Z] Account found: status=CONNECTED, providerAccountId=919063119366
+[Sync API Debug][2026-08-23T17:49:04.442Z] Live status from connection manager: {"status":"CONNECTED","qr":null,"diagnostic":{"connectionState":"open","statusCode":null,"disconnectReason":null,"baileysVersion":"7.0.0-rc14","waWebVersion":"2.3000.1045836822","timestamp":"2026-08-23T17:00:36.213Z"}}
+[Sync API Debug][2026-08-23T17:49:04.444Z] Is active socket present: true
+[Sync API Debug][2026-08-23T17:49:04.446Z] Triggering syncHistory() inside WhatsAppConnectionManager...
+[Sync API Debug][2026-08-23T17:50:18.602Z] syncHistory() completed successfully. Result: {"synced":94,"skipped":0,"partial":false}
+[Sync API Debug][2026-08-23T17:50:18.605Z] Updating connectedAccount updatedAt timestamp...
+[Sync API Debug][2026-08-23T17:50:18.621Z] Sync request successfully processed.
